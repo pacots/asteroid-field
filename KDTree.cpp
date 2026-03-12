@@ -15,6 +15,7 @@
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 #include "KDTree.hpp"
@@ -167,7 +168,8 @@ void KDTree::knearest_(
     node_query_(close_branch, pt, next_level, num_nearest, k_nearest_buffer);
 
     // only check the other branch if it makes sense to do so
-    if (dx2 < k_nearest_buffer.back().second ||
+    if (k_nearest_buffer.empty() ||
+        dx2 < k_nearest_buffer.back().second ||
         k_nearest_buffer.size() < num_nearest) {
         node_query_(far_branch, pt, next_level, num_nearest, k_nearest_buffer);
     }
@@ -175,6 +177,9 @@ void KDTree::knearest_(
 
 // default caller
 KDNodePtr KDTree::nearest_(point_t const& pt) {
+    if (!root_ || !static_cast<bool>(*root_)) {
+        return nullptr;
+    }
     size_t level = 0;
     std::list<std::pair<KDNodePtr, double>> k_buffer{};
     k_buffer.emplace_back(root_, dist2(static_cast<point_t>(*root_), pt));
@@ -191,20 +196,34 @@ KDNodePtr KDTree::nearest_(point_t const& pt) {
 };
 
 point_t KDTree::nearest_point(point_t const& pt) {
-    return static_cast<point_t>(*nearest_(pt));
+    KDNodePtr result = nearest_(pt);
+    if (!result) {
+        throw std::logic_error("KDTree::nearest_point called on empty tree");
+    }
+    return static_cast<point_t>(*result);
 }
 
 size_t KDTree::nearest_index(point_t const& pt) {
-    return static_cast<size_t>(*nearest_(pt));
+    KDNodePtr result = nearest_(pt);
+    if (!result) {
+        throw std::logic_error("KDTree::nearest_index called on empty tree");
+    }
+    return static_cast<size_t>(*result);
 }
 
 pointIndex KDTree::nearest_pointIndex(point_t const& pt) {
     KDNodePtr Nearest = nearest_(pt);
+    if (!Nearest) {
+        throw std::logic_error("KDTree::nearest_pointIndex called on empty tree");
+    }
     return static_cast<pointIndex>(*Nearest);
 }
 
 pointIndexArr KDTree::nearest_pointIndices(point_t const& pt,
                                            size_t const& num_nearest) {
+    if (!root_ || !static_cast<bool>(*root_)) {
+        return {};
+    }
     size_t level = 0;
     std::list<std::pair<KDNodePtr, double>> k_buffer{};
     k_buffer.emplace_back(root_, dist2(static_cast<point_t>(*root_), pt));
@@ -213,8 +232,9 @@ pointIndexArr KDTree::nearest_pointIndices(point_t const& pt,
               level,       // start from level 0
               num_nearest, // number of nearest neighbours to return in k_buffer
               k_buffer);   // list of k nearest neigbours (to be filled)
-    pointIndexArr output{num_nearest};
-    std::transform(k_buffer.begin(), k_buffer.end(), output.begin(),
+    pointIndexArr output;
+    output.reserve(k_buffer.size());
+    std::transform(k_buffer.begin(), k_buffer.end(), std::back_inserter(output),
                    [](auto const& nodeptr_dist) {
                        return static_cast<pointIndex>(*(nodeptr_dist.first));
                    });
